@@ -1,0 +1,646 @@
+openapi: 3.0.3
+info:
+  title: Aquaponics Monitoring API
+  version: 0.1.0
+  description: REST API and WebSocket protocol for aquaponics farm monitoring and management.
+servers:
+  - url: https://api.example.com
+    description: Production
+  - url: http://localhost:5000
+    description: Development
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties:
+                type: string
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+    AuthResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            user:
+              $ref: '#/components/schemas/User'
+            token:
+              type: string
+    FarmPermissions:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [owner, admin, member, viewer]
+        canEdit:
+          type: boolean
+        canConfigure:
+          type: boolean
+        canManageMembers:
+          type: boolean
+    Farm:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        location:
+          oneOf:
+            - type: string
+            - type: object
+        is_public:
+          type: boolean
+        permissions:
+          $ref: '#/components/schemas/FarmPermissions'
+    Thresholds:
+      type: object
+      properties:
+        temperature:
+          type: object
+          properties:
+            min:
+              type: number
+            max:
+              type: number
+        ph:
+          type: object
+          properties:
+            min:
+              type: number
+            max:
+              type: number
+        turbidity:
+          type: object
+          properties:
+            min:
+              type: number
+            max:
+              type: number
+    SensorReading:
+      type: object
+      properties:
+        recorded_at:
+          type: string
+          format: date-time
+        temperature:
+          type: number
+        ph:
+          type: number
+        turbidity:
+          type: number
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [info, warning, critical]
+        title:
+          type: string
+        message:
+          type: string
+        sensor:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        read:
+          type: boolean
+    Species:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        ranges:
+          type: object
+          properties:
+            temperature:
+              type: array
+              items:
+                type: number
+              minItems: 2
+              maxItems: 2
+            ph:
+              type: array
+              items:
+                type: number
+              minItems: 2
+              maxItems: 2
+            turbidity:
+              type: array
+              items:
+                type: number
+              minItems: 2
+              maxItems: 2
+paths:
+  /api/auth/register:
+    post:
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, username, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/login:
+    post:
+      summary: Login with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Unauthorized
+  /api/auth/forgot-password:
+    post:
+      summary: Request password reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Always returns ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      ok:
+                        type: boolean
+  /api/auth/update-profile:
+    put:
+      security:
+        - bearerAuth: []
+      summary: Update username
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+      responses:
+        '200':
+          description: OK
+  /api/auth/change-password:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Change password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        '200':
+          description: OK
+  /api/farms/public:
+    get:
+      summary: List public farms
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Farm'
+  /api/farms/user:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List current user's farms
+      responses:
+        '200':
+          description: OK
+  /api/farms/{farmId}:
+    get:
+      summary: Get farm details
+      parameters:
+        - name: farmId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+  /api/farms/switch:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Set default farm for current user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                farmId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: OK
+  /api/farms/{farmId}/sensor-data:
+    get:
+      summary: Historical sensor readings
+      parameters:
+        - name: farmId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: range
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [24h, 7d, 30d]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SensorReading'
+  /api/farms/{farmId}/notifications:
+    get:
+      summary: List notifications
+      parameters:
+        - name: farmId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [unread, all]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: OK
+  /api/notifications/unread-count:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get unread notification count
+      responses:
+        '200':
+          description: OK
+  /api/notifications/{id}/read:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Mark notification as read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+  /api/farms/{farmId}/users:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List farm members (admin)
+      parameters:
+        - name: farmId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+    post:
+      security:
+        - bearerAuth: []
+      summary: Add user to farm (owner)
+      parameters:
+        - name: farmId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email:
+                  type: string
+                  format: email
+                role:
+                  type: string
+                  enum: [admin, member, viewer]
+      responses:
+        '200':
+          description: OK
+  /api/farms/{farmId}/users/{userId}/role:
+    put:
+      security:
+        - bearerAuth: []
+      summary: Change member role (admin)
+      parameters:
+        - name: farmId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum: [admin, member, viewer]
+      responses:
+        '200':
+          description: OK
+  /api/farms/{farmId}/users/{userId}:
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Remove farm member (owner)
+      parameters:
+        - name: farmId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+  /api/farms/{farmId}/thresholds:
+    get:
+      summary: Get alert thresholds for a farm
+      parameters:
+        - name: farmId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+  /api/farms/{farmId}/settings:
+    put:
+      security:
+        - bearerAuth: []
+      summary: Update farm settings and thresholds
+      parameters:
+        - name: farmId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                location:
+                  oneOf:
+                    - type: string
+                    - type: object
+                thresholds:
+                  $ref: '#/components/schemas/Thresholds'
+      responses:
+        '200':
+          description: OK
+  /api/species/fish:
+    get:
+      summary: List fish species
+      responses:
+        '200':
+          description: OK
+  /api/species/plants:
+    get:
+      summary: List plant species
+      responses:
+        '200':
+          description: OK
+  /api/species/compatibility:
+    post:
+      summary: Calculate compatibility and recommended ranges
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fishIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                plantIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: OK
+  /api/ingest/sensor:
+    post:
+      summary: Ingest external sensor data (secured)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [farmId, temperature, ph, turbidity]
+              properties:
+                farmId:
+                  type: string
+                  format: uuid
+                recorded_at:
+                  type: string
+                  format: date-time
+                temperature:
+                  type: number
+                ph:
+                  type: number
+                turbidity:
+                  type: number
+                signature:
+                  type: string
+      responses:
+        '202':
+          description: Accepted
+x-websocket:
+  url: ws://localhost:5000/ws
+  query:
+    - name: farmId
+      type: string
+      format: uuid
+    - name: token
+      type: string
+  messages:
+    - direction: server
+      type: sensor_update
+      payload:
+        $ref: '#/components/schemas/SensorReading'
+    - direction: server
+      type: notification
+      payload:
+        $ref: '#/components/schemas/Notification'
